@@ -16,3 +16,5 @@ if (BUILD_STATIC_PROGRAM)
 endif()
 
 add_executable(nu801 nu801.c gpio-utils.c)
+
+install(TARGETS nu801 DESTINATION /usr/sbin)
