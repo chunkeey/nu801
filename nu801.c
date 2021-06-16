@@ -80,16 +80,38 @@ struct hardware_definitions {
 		.colors = { "blue", "green", "red" },
 		.functions = { "tricolor", "tricolor", "tricolor" },
 	},
-
-	/*
-	 * {
-	 *	.id = "Meraki Z1",
-	 * },
-	 * {
-	 *	.id = "Meraki MR18",
-	 * }
-	 */
-
+	{
+		.id = "Meraki MR18",
+		.board = "mr18",
+		.gpio = {
+			.type = NUMBER,
+			.gpiochip = "gpiochip0",
+			.num = {
+				.cki = 11,
+				.sdi = 12,
+				.lei = -1,
+			},
+		},
+		.ndelay = 500,
+		.colors = {"red", "green", "blue" },
+		.functions = { "tricolor", "tricolor", "tricolor" },
+	},
+	{
+		.id = "Meraki Z1",
+		.board = "z1",
+		.gpio = {
+			.type = NUMBER,
+			.gpiochip = "gpiochip0",
+			.num = {
+				.cki = 14,
+				.sdi = 15,
+				.lei = -1,
+			},
+		},
+		.ndelay = 500,
+		.colors = { "blue", "green", "red" },
+		.functions = { "tricolor", "tricolor", "tricolor" },
+	},
 	{ },
 };
 
