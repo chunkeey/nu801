@@ -56,7 +56,7 @@ struct hardware_definitions {
 			struct {
 				unsigned int cki;
 				unsigned int sdi;
-				unsigned int lei;
+				int lei;
 			} num;
 		};
 	} gpio;
@@ -81,10 +81,25 @@ struct hardware_definitions {
 		.functions = { "tricolor", "tricolor", "tricolor" },
 	},
 
+
+	{
+		.id = "Meraki Z1",
+		.board = "z1",
+		.gpio = {
+			.type = NUMBER,
+			.gpiochip = "gpiochip0",
+			.num = {
+				.cki = 14,
+				.sdi = 15,
+				.lei = -1,
+			},
+		},
+		.ndelay = 500,
+		.colors = { "blue", "green", "red" },
+		.functions = { "tricolor", "tricolor", "tricolor" },
+	},
+
 	/*
-	 * {
-	 *	.id = "Meraki Z1",
-	 * },
 	 * {
 	 *	.id = "Meraki MR18",
 	 * }
