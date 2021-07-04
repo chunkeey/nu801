@@ -65,7 +65,7 @@ struct hardware_definitions {
 	const char *functions[3];	/* likewise... 3 channels */
 } supported_hardware[] = {
 	{
-		.id = "Cisco MX100-HW",
+		.id = "cisco-mx100-hw",
 		.board = "mx100",
 		.gpio = {
 			.type = NUMBER,
@@ -83,7 +83,7 @@ struct hardware_definitions {
 
 
 	{
-		.id = "Meraki Z1",
+		.id = "meraki,z1",
 		.board = "z1",
 		.gpio = {
 			.type = NUMBER,

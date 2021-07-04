@@ -21,8 +21,8 @@ This program needs a 5.10+ linux kernel and the following config symbols:
 
  make
 
- ./nu801 "Hardware ID" 
- i.e. `./nu801 "Cisco MX100-HW"`
+ ./nu801 "Board Name" 
+ i.e. `./nu801 "cisco-mx100-hw"`
  
 ## Supported Hardware
 
