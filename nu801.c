@@ -99,11 +99,23 @@ struct hardware_definitions {
 		.functions = { "tricolor", "tricolor", "tricolor" },
 	},
 
-	/*
-	 * {
-	 *	.id = "Meraki MR18",
-	 * }
-	 */
+
+	{
+		.id = "meraki,mr18",
+		.board = "mr18",
+		.gpio = {
+			.type = NUMBER,
+			.gpiochip = "gpiochip0",
+			.num = {
+				.cki = 11,
+				.sdi = 12,
+				.lei = -1,
+			},
+		},
+		.ndelay = 500,
+		.colors = { "red", "green", "blue" },
+		.functions = { "tricolor", "tricolor", "tricolor" },
+	},
 
 	{ },
 };
@@ -157,7 +169,7 @@ enum nu801_gpio_t {
 static int register_gpio(const struct hardware_definitions *dev)
 {
 	struct gpio_v2_line_config config = { };
-	unsigned int lines[3];
+	int lines[3];
 	int gpio_fd, ret, i, num_lines;
 
 	if (dev->gpio.type == NUMBER) {
