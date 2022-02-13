@@ -84,7 +84,6 @@ struct hardware_definitions {
 
 	{
 		.id = "meraki,z1",
-		.board = "z1",
 		.gpio = {
 			.type = NUMBER,
 			.gpiochip = "gpiochip0",
@@ -102,7 +101,6 @@ struct hardware_definitions {
 
 	{
 		.id = "meraki,mr18",
-		.board = "mr18",
 		.gpio = {
 			.type = NUMBER,
 			.gpiochip = "gpiochip0",
@@ -140,8 +138,12 @@ static int register_uled(struct nu801_led_struct *led,
 	int ret;
 
 	/* sprintf_s would be cool... but alas */
-	snprintf((char *)&led->uleds_dev.name, LED_MAX_NAME_SIZE-1, "%s:%s:%s",
-		board, color, function);
+	if (board)
+		snprintf((char *)&led->uleds_dev.name, LED_MAX_NAME_SIZE-1, "%s:%s:%s",
+			board, color, function);
+	else
+		snprintf((char *)&led->uleds_dev.name, LED_MAX_NAME_SIZE-1, "%s:%s",
+			color, function);
 
 	led->uleds_dev.max_brightness = 255;
 
