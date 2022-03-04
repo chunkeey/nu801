@@ -49,7 +49,7 @@ enum gpio_type { NUMBER };
  * Here we describe our supported hardware
  * the "id" gets passed as the programs one and only parameter
  */
-struct hardware_definitions {
+static const struct hardware_definitions {
 	const char *id;
 	const char *board;
 
@@ -61,7 +61,7 @@ struct hardware_definitions {
 			struct {
 				unsigned int cki;
 				unsigned int sdi;
-				int lei;
+				unsigned int lei;
 			} num;
 		};
 	} gpio;
@@ -95,7 +95,7 @@ struct hardware_definitions {
 			.num = {
 				.cki = 14,
 				.sdi = 15,
-				.lei = -1,
+				.lei = ~0,
 			},
 		},
 		.ndelay = 500,
@@ -112,7 +112,7 @@ struct hardware_definitions {
 			.num = {
 				.cki = 11,
 				.sdi = 12,
-				.lei = -1,
+				.lei = ~0,
 			},
 		},
 		.ndelay = 500,
@@ -120,7 +120,7 @@ struct hardware_definitions {
 		.functions = { "tricolor", "tricolor", "tricolor" },
 	},
 
-	{ },
+	{ 0, } /* Sentinel */
 };
 
 struct nu801_led_struct {
@@ -131,10 +131,10 @@ struct nu801_led_struct {
 
 /* Program State */
 static volatile sig_atomic_t fatal_error_in_progress = 0;
-static struct gpio_v2_line_values values = { };
-static struct nu801_led_struct leds[3] = { };
-static struct hardware_definitions *dev;
-static size_t num_leds;
+static struct gpio_v2_line_values values = { 0 };
+static struct nu801_led_struct leds[3] = { 0 };
+static const struct hardware_definitions *dev;
+static unsigned int num_leds;
 static int gpio_fd;
 static int daemonize = 1;
 
@@ -161,7 +161,7 @@ static int register_uled(struct nu801_led_struct *led,
 	}
 
 	ret = write(led->fd, &led->uleds_dev, sizeof(led->uleds_dev));
-	if (ret < sizeof(led->uleds_dev)) {
+	if (ret < (int)sizeof(led->uleds_dev)) {
 		perror("Failed to write to /dev/uleds");
 		return -errno;
 	}
@@ -177,9 +177,9 @@ enum nu801_gpio_t {
 
 static int register_gpio(const struct hardware_definitions *dev)
 {
-	struct gpio_v2_line_config config = { };
-	int lines[3];
-	int gpio_fd, ret, i, num_lines;
+	struct gpio_v2_line_config config = { 0 };
+	unsigned int lines[3], num_lines, i;
+	int gpio_fd, ret;
 
 	if (dev->gpio.type == NUMBER) {
 		lines[NU801_CKI] = dev->gpio.num.cki;
@@ -197,8 +197,8 @@ static int register_gpio(const struct hardware_definitions *dev)
 	 * device would just have supported I2C, this wouldn't be
 	 * worth all this hassle.
 	 */
-	num_lines = lines[NU801_LEI] >= 0 ? 3 : 2;
-	DPRINTF("Registering '%d' gpio-lines.\n", num_lines);
+	num_lines = ((lines[NU801_LEI] ^ ~0) ? 3 : 2);
+	DPRINTF("Registering '%u' gpio-lines.\n", num_lines);
 	ret = gpiotools_request_line(dev->gpio.gpiochip, lines,
 				num_lines, &config, "nu801");
 	if (ret < 0) {
@@ -221,7 +221,7 @@ static int register_gpio(const struct hardware_definitions *dev)
 		return ret;
 	}
 
-	DPRINTF("Initial States: values.bits:%xl values.mask:%xl",
+	DPRINTF("Initial States: values.bits:%llx values.mask:%llx\n",
 		values.bits, values.mask);
 
 	return gpio_fd;
@@ -245,7 +245,7 @@ static void ndelay(const long nsec)
 	nanosleep(&sleep, NULL);
 }
 
-void udelay(const unsigned short usec)
+static void udelay(const unsigned short usec)
 {
 	/*
 	 * let's assume the caller doesn't something stupid like
@@ -256,11 +256,11 @@ void udelay(const unsigned short usec)
 	ndelay(usec * 1000);
 }
 
-void handle_leds(struct hardware_definitions *dev)
+static void handle_leds(const struct hardware_definitions *dev)
 {
 	struct nu801_led_struct *led;
 	uint16_t hwval, bit;
-	int i;
+	unsigned int i;
 
 	/*
 	 * bit-bang the 3 x 16-Bit PWM values. There's no fancy protocol,
@@ -291,7 +291,7 @@ void handle_leds(struct hardware_definitions *dev)
 			gpio_commit();
 
 			if (((i == (num_leds - 1)) && (bit == 1) &&
-				   (dev->gpio.num.lei < 0))) {
+				   !(~0 ^ dev->gpio.num.lei))) {
 
 				/*
 				 * From the datasheet:
@@ -312,7 +312,7 @@ void handle_leds(struct hardware_definitions *dev)
 			gpio_set(NU801_CKI, 0);
 			gpio_commit();
 
-			/* ndelay(dev->ndelay); */
+			ndelay(dev->ndelay);
 		}
 	}
 
@@ -320,11 +320,11 @@ void handle_leds(struct hardware_definitions *dev)
 	 * In case we have the latch connected through a GPIO,
 	 * we can just trigger it, instead of wasting 600us.
 	 */
-	if (dev->gpio.num.lei >= 0) {
+	if ((~0 ^ dev->gpio.num.lei)) {
 		gpio_set(NU801_LEI, 1);
 		gpio_commit();
 
-		/* ndelay(dev->ndelay); */
+		ndelay(dev->ndelay);
 
 		gpio_set(NU801_LEI, 0);
 		gpio_commit();
@@ -333,7 +333,7 @@ void handle_leds(struct hardware_definitions *dev)
 
 static void teardown(void)
 {
-	int i;
+	unsigned int i;
 
 	if (gpio_fd > 0) {
 		DPRINTF("turning off LEDs on shutdown\n");
@@ -350,7 +350,7 @@ static void teardown(void)
 
 	for (i = 0; i < ARRAY_SIZE(leds); i++) {
 		if (leds[i].fd > 0) {
-			DPRINTF("unregistering LED %d\n", i);
+			DPRINTF("unregistering LED %u\n", i);
 			close(leds[i].fd);
 			leds[i].fd = -1;
 		}
@@ -377,7 +377,7 @@ static int catch_fatal_errors(void)
 
 	/* block all signals */
 	sigemptyset(&sigs);
-	sigprocmask(SIG_BLOCK, &sigs, 0);
+	sigprocmask(SIG_BLOCK, &sigs, NULL);
 
 	if ((signal(SIGTERM, fatal_error_signal) == SIG_ERR) ||
 	    (signal(SIGALRM, fatal_error_signal) == SIG_ERR) ||
@@ -395,8 +395,9 @@ static int catch_fatal_errors(void)
 int main(int argc, char **args)
 {
 	fd_set rfds;
-	const char **color, **func;
-	int i, ret = -EINVAL, pidfd, highest_fd = -1;
+	const char *const *color, *const *func;
+	unsigned int i;
+	int ret = -EINVAL, pidfd, highest_fd = -1;
 	pid_t pid;
 
 	if (catch_fatal_errors())
@@ -419,14 +420,14 @@ int main(int argc, char **args)
 	}
 
 	printf("Found supported device: '%s'\n", dev->id);
-	DPRINTF("cki:%d sdi:%d lei:%d\n", dev->gpio.num.cki, dev->gpio.num.sdi,
+	DPRINTF("cki:%u sdi:%u lei:%u\n", dev->gpio.num.cki, dev->gpio.num.sdi,
 		dev->gpio.num.lei);
 
 	FD_ZERO(&rfds);
 	for (i = 0, color = dev->colors, func = dev->functions;
 	     *color && *func && i < ARRAY_SIZE(dev->colors);
 	     color++, func++, i++) {
-		DPRINTF("Registering LED %d %s:%s:%s\n", i, dev->board, *color, *func);
+		DPRINTF("Registering LED %u %s:%s:%s\n", i, dev->board, *color, *func);
 		ret = register_uled(&leds[i], dev->board, *color, *func);
 		if (ret)
 			goto out;
@@ -437,7 +438,7 @@ int main(int argc, char **args)
 			highest_fd = leds[i].fd;
 	}
 	num_leds = i;
-	DPRINTF("Registered %d LEDs\n", num_leds);
+	DPRINTF("Registered %u LEDs\n", num_leds);
 
 	gpio_fd = register_gpio(dev);
 	if (gpio_fd < 0) {
@@ -479,7 +480,7 @@ int main(int argc, char **args)
 	for (;;) {
 		DPRINTF("Polling LEDs...\n");
 		ret = select(highest_fd, &rfds, NULL, NULL, NULL);
-		DPRINTF(" Got an LED event!\n ret=%d\n", ret);
+		DPRINTF("Got an LED event! ret=%d\n", ret);
 
 		if (ret < 0)
 			goto out;
@@ -488,17 +489,17 @@ int main(int argc, char **args)
 			if (FD_ISSET(leds[i].fd, &rfds)) {
 				int brightness;
 
-				DPRINTF("LED %d has new data. (old brightness: %d)\n",
+				DPRINTF("LED %u has new data. (old brightness: %d)\n",
 					i, leds[i].brightness);
 				ret = read(leds[i].fd, &brightness,
 					   sizeof(brightness));
 
 				if (ret <= 0) {
-					ret = ret ? : -1;
+					ret = ((ret < 0) ? -1 : ret);
 					goto out;
 				}
 
-				DPRINTF("set LED %d to brightness %d\n", i, brightness);
+				DPRINTF("set LED %u to brightness %d\n", i, brightness);
 				leds[i].brightness = brightness;
 			}
 

@@ -62,7 +62,7 @@ int gpiotools_request_line(const char *device_name, unsigned int *lines,
 	struct gpio_v2_line_request req;
 	char *chrdev_name;
 	int fd;
-	int i;
+	size_t i;
 	int ret;
 
 	ret = asprintf(&chrdev_name, "/dev/%s", device_name);
@@ -205,7 +205,8 @@ int gpiotools_get(const char *device_name, unsigned int line)
 int gpiotools_gets(const char *device_name, unsigned int *lines,
 		   unsigned int num_lines, unsigned int *values)
 {
-	int fd, i;
+	int fd;
+	size_t i;
 	int ret;
 	int ret_close;
 	struct gpio_v2_line_config config;
@@ -263,7 +264,8 @@ int gpiotools_set(const char *device_name, unsigned int line,
 int gpiotools_sets(const char *device_name, unsigned int *lines,
 		   unsigned int num_lines, unsigned int *values)
 {
-	int ret, i;
+	int ret;
+	size_t i;
 	struct gpio_v2_line_config config;
 
 	memset(&config, 0, sizeof(config));
