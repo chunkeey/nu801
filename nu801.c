@@ -23,6 +23,7 @@
 #include <getopt.h>
 #include <time.h>
 #include <unistd.h>
+#include <signal.h>
 
 #include <sys/select.h>
 #include <sys/ioctl.h>
@@ -125,9 +126,10 @@ struct nu801_led_struct {
 };
 
 /* Program State */
-
+static volatile sig_atomic_t fatal_error_in_progress = 0;
 static struct gpio_v2_line_values values = { };
 static struct nu801_led_struct leds[3] = { };
+static struct hardware_definitions *dev;
 static size_t num_leds;
 static int gpio_fd;
 
@@ -324,12 +326,75 @@ void handle_leds(struct hardware_definitions *dev)
 	}
 }
 
+static void teardown(void)
+{
+	int i;
+
+	if (gpio_fd > 0) {
+		DPRINTF("turning off LEDs on shutdown\n");
+		/* turn off the lights before exitting. */
+		for (i = 0; i < num_leds; i++)
+			leds[i].brightness = 0;
+
+		handle_leds(dev);
+
+		DPRINTF("releasing GPIOs back to the kernel.\n");
+		gpiotools_release_line(gpio_fd);
+		gpio_fd = -1;
+	}
+
+	for (i = 0; i < ARRAY_SIZE(leds); i++) {
+		if (leds[i].fd > 0) {
+			DPRINTF("unregistering LED %d\n", i);
+			close(leds[i].fd);
+			leds[i].fd = -1;
+		}
+	}
+}
+
+static void fatal_error_signal(int sig)
+{
+	/* catch cascading errors. if we end up here then elevate this */
+	if (fatal_error_in_progress)
+		raise(sig);
+
+	fatal_error_in_progress = 1;
+
+	teardown();
+
+	signal(sig, SIG_DFL);
+	raise(sig);
+}
+
+static int catch_fatal_errors(void)
+{
+        sigset_t sigs;
+
+	/* block all signals */
+	sigemptyset(&sigs);
+	sigprocmask(SIG_BLOCK, &sigs, 0);
+
+	if ((signal(SIGTERM, fatal_error_signal) == SIG_ERR) ||
+	    (signal(SIGALRM, fatal_error_signal) == SIG_ERR) ||
+	    (signal(SIGABRT, fatal_error_signal) == SIG_ERR) ||
+	    (signal(SIGPIPE, fatal_error_signal) == SIG_ERR) ||
+	    (signal(SIGHUP,  fatal_error_signal) == SIG_ERR) ||
+	    (signal(SIGILL,  fatal_error_signal) == SIG_ERR) ||
+	    (signal(SIGINT,  fatal_error_signal) == SIG_ERR) ||
+	    (signal(SIGFPE,  fatal_error_signal) == SIG_ERR))
+		return -1;
+
+	return 0;
+}
+
 int main(int argc, char **args)
 {
-	struct hardware_definitions *dev;
 	fd_set rfds;
 	const char **color, **func;
 	int i, ret = -EINVAL, highest_fd = -1;
+
+	if (catch_fatal_errors())
+		goto out;
 
 	if (argc != 2) {
 		fprintf(stderr, "%s: device-id\n", args[0]);
@@ -411,12 +476,6 @@ int main(int argc, char **args)
 out:
 	DPRINTF("Exiting... ret=%d\n", ret);
 
-	if (gpio_fd > 0)
-		gpiotools_release_line(gpio_fd);
-	for (i = 0; i < ARRAY_SIZE(leds); i++) {
-		if (leds[i].fd > 0)
-			close(leds[i].fd);
-	}
-
+	teardown();
 	return ret ? EXIT_FAILURE : EXIT_SUCCESS;
 }
