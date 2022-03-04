@@ -26,12 +26,9 @@ This program needs a 5.10+ linux kernel and the following config symbols:
  
 ## Supported Hardware
 
-Currently, only the Cisco MX100 is getting supported...
+Currently, only the Cisco Meraki MX100 is getting supported. It works on Debian
+and OpenWrt. Cisco Meraki MR18 works too, but has no upstream device.
 
 ## Options
-By default, the project will be built as "Release". If the `CMAKE_BUILD_TYPE` is
-changed to `DEBUG` (cmake-gui is a great help here). It will print various
-additional messages during operation.
-
-It's also possible to build a STATIC version of this program by selecting the
-`BUILD_STATIC_PROGRAM` cmake option.
+By default, the project will be built as "Release". To build a STATIC version of
+this program select the `BUILD_STATIC_PROGRAM` cmake option.

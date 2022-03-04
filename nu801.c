@@ -24,6 +24,7 @@
 #include <time.h>
 #include <unistd.h>
 #include <signal.h>
+#include <getopt.h>
 
 #include <sys/select.h>
 #include <sys/ioctl.h>
@@ -32,16 +33,6 @@
 #include <linux/uleds.h>
 
 #include "gpio-utils.h"
-
-#ifdef NDEBUG
-#define DPRINTF(fmt, ...)
-#else
-#define DPRINTF(fmt, ...) printf((fmt), ##__VA_ARGS__)
-#endif
-
-#define PID_NOBODY 65534
-#define GID_NOGROUP 65534
-#define RUNFILE "/var/run/nu801.pid"
 
 enum gpio_type { NUMBER };
 
@@ -136,7 +127,13 @@ static struct nu801_led_struct leds[3] = { 0 };
 static const struct hardware_definitions *dev;
 static unsigned int num_leds;
 static int gpio_fd;
-static int daemonize = 1;
+static bool daemonize = true;
+static bool debug = false;
+
+#define DPRINTF(fmt, ...) { if (debug) printf((fmt), ##__VA_ARGS__); }
+#define PID_NOBODY 65534
+#define GID_NOGROUP 65534
+#define RUNFILE "/var/run/nu801.pid"
 
 static int register_uled(struct nu801_led_struct *led,
 			const char *board, const char *color,
@@ -179,7 +176,7 @@ static int register_gpio(const struct hardware_definitions *dev)
 {
 	struct gpio_v2_line_config config = { 0 };
 	unsigned int lines[3], num_lines, i;
-	int gpio_fd, ret;
+	int _gpio_fd, ret;
 
 	if (dev->gpio.type == NUMBER) {
 		lines[NU801_CKI] = dev->gpio.num.cki;
@@ -202,10 +199,10 @@ static int register_gpio(const struct hardware_definitions *dev)
 	ret = gpiotools_request_line(dev->gpio.gpiochip, lines,
 				num_lines, &config, "nu801");
 	if (ret < 0) {
-		perror("Failed to request chip lines.");
+		perror("Failed to request chip lines");
 		return ret;
 	}
-	gpio_fd = ret;
+	_gpio_fd = ret;
 
 	/*
 	 * tell the kernel that we are interested in the following
@@ -215,16 +212,16 @@ static int register_gpio(const struct hardware_definitions *dev)
 		gpiotools_set_bit(&values.mask, i);
 
 	/* get initial states ... not that this would matter */
-	ret = gpiotools_get_values(gpio_fd, &values);
+	ret = gpiotools_get_values(_gpio_fd, &values);
 	if (ret < 0) {
-		perror("Failed to request initial states...");
+		perror("Failed to request initial states");
 		return ret;
 	}
 
 	DPRINTF("Initial States: values.bits:%llx values.mask:%llx\n",
 		values.bits, values.mask);
 
-	return gpio_fd;
+	return _gpio_fd;
 }
 
 static inline void gpio_set(const enum nu801_gpio_t gpio, const bool state)
@@ -392,34 +389,67 @@ static int catch_fatal_errors(void)
 	return 0;
 }
 
-int main(int argc, char **args)
+static void __attribute__ ((noreturn)) usage(int ret)
+{
+	fprintf(stderr, "Usage: nu801 [-P pidfile] [-F] [-d] [-h] device-id\n\n"
+		"NU801 userspace controller\n\n"
+		"\t-P\t- specify custom pidfile (default:'" RUNFILE "')\n"
+		"\t-F\t- run in foreground.\n"
+		"\t-h\t- shows this help.\n"
+		"\n"
+		"\tdevice-id - OF machine compatible/ACPI devicename\n");
+	exit(ret ? EXIT_FAILURE : EXIT_SUCCESS);
+}
+
+int main(int argc, char **argv)
 {
 	fd_set rfds;
 	const char *const *color, *const *func;
+	const char *runfile = RUNFILE;
 	unsigned int i;
-	int ret = -EINVAL, pidfd, highest_fd = -1;
+	int ret = -EINVAL, pidfd, highest_fd = -1, opt;
 	pid_t pid;
 
 	if (catch_fatal_errors())
 		goto out;
 
-	if (argc != 2) {
-		fprintf(stderr, "%s: device-id\n", args[0]);
-		goto out;
+	while ((opt = getopt(argc, argv, "P:Fdh")) != -1) {
+		switch (opt) {
+		case 'P':
+			if (strnlen(optarg,1))
+				runfile = optarg;
+			else
+				runfile = NULL;
+			break;
+		case 'F':
+			daemonize = false;
+			break;
+		case 'd':
+			debug = true;
+			break;
+		case 'h':
+			usage(0);
+			break;
+		default:
+			usage(ret);
+			break;
+		}
 	}
 
+	if (optind >= argc)
+		usage(ret);
+
 	for (dev = &supported_hardware[0]; dev->id; dev++) {
-		if (!strcmp(args[1], dev->id))
+		if (!strcmp(argv[optind], dev->id))
 			break;
 	}
 
 	if (!dev->id) {
-		fprintf(stderr, "%s: unsupported device '%s'\n",
-			args[0], args[1]);
+		fprintf(stderr, "nu801: unsupported device '%s'\n", argv[optind]);
 		goto out;
 	}
 
-	printf("Found supported device: '%s'\n", dev->id);
+	DPRINTF("Found supported device: '%s'\n", dev->id);
 	DPRINTF("cki:%u sdi:%u lei:%u\n", dev->gpio.num.cki, dev->gpio.num.sdi,
 		dev->gpio.num.lei);
 
@@ -442,35 +472,37 @@ int main(int argc, char **args)
 
 	gpio_fd = register_gpio(dev);
 	if (gpio_fd < 0) {
-		perror("failed to register gpio.");
+		perror("failed to register gpio");
 		goto out;
 	}
 
 	if (daemonize) {
-		DPRINTF("Daemonize.\n");
+		DPRINTF("Summoning the daemon with a fork...\n");
 		pid = fork();
 		if (pid < 0) {
-			perror("failed to fork/daemonize.");
+			perror("failed to fork/daemonize");
 			ret = pid;
 			goto out;
 		} else if (pid > 0) {
 			/* parent */
 			goto goodbye;
 		}
-		DPRINTF("Child says hello.\n");
 	}
 
-	/* remove stale pidfiles or nefarious symlinks - see dnsmasq. */
-	unlink(RUNFILE);
-	pidfd = open(RUNFILE, O_WRONLY|O_CREAT, S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP|S_IROTH);
-	if (pidfd < 0) {
-		perror("failed to create pidfile");
-		ret = pidfd;
-		goto out;
+	if (runfile) {
+		DPRINTF("Setting up pid '%s'\n", runfile);
+		/* remove stale pidfiles or nefarious symlinks - see dnsmasq. */
+		unlink(runfile);
+		pidfd = open(runfile, O_WRONLY|O_CREAT, S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP|S_IROTH);
+		if (pidfd < 0) {
+			perror("failed to create pidfile");
+			ret = pidfd;
+			goto out;
+		}
+		dprintf(pidfd, "%d\n", getpid());
+		fchown(pidfd, PID_NOBODY, GID_NOGROUP);
+		close(pidfd);
 	}
-	dprintf(pidfd, "%d\n", getpid());
-	fchown(pidfd, PID_NOBODY, GID_NOGROUP);
-	close(pidfd);
 
 	/* no need for special permissions any more. Drop to nobody:nogroup */
 	setgid(GID_NOGROUP);
