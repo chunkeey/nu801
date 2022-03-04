@@ -39,6 +39,10 @@
 #define DPRINTF(fmt, ...) printf((fmt), ##__VA_ARGS__)
 #endif
 
+#define PID_NOBODY 65534
+#define GID_NOGROUP 65534
+#define RUNFILE "/var/run/nu801.pid"
+
 enum gpio_type { NUMBER };
 
 /*
@@ -132,6 +136,7 @@ static struct nu801_led_struct leds[3] = { };
 static struct hardware_definitions *dev;
 static size_t num_leds;
 static int gpio_fd;
+static int daemonize = 1;
 
 static int register_uled(struct nu801_led_struct *led,
 			const char *board, const char *color,
@@ -391,7 +396,8 @@ int main(int argc, char **args)
 {
 	fd_set rfds;
 	const char **color, **func;
-	int i, ret = -EINVAL, highest_fd = -1;
+	int i, ret = -EINVAL, pidfd, highest_fd = -1;
+	pid_t pid;
 
 	if (catch_fatal_errors())
 		goto out;
@@ -439,6 +445,36 @@ int main(int argc, char **args)
 		goto out;
 	}
 
+	if (daemonize) {
+		DPRINTF("Daemonize.\n");
+		pid = fork();
+		if (pid < 0) {
+			perror("failed to fork/daemonize.");
+			ret = pid;
+			goto out;
+		} else if (pid > 0) {
+			/* parent */
+			goto goodbye;
+		}
+		DPRINTF("Child says hello.\n");
+	}
+
+	/* remove stale pidfiles or nefarious symlinks - see dnsmasq. */
+	unlink(RUNFILE);
+	pidfd = open(RUNFILE, O_WRONLY|O_CREAT, S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP|S_IROTH);
+	if (pidfd < 0) {
+		perror("failed to create pidfile");
+		ret = pidfd;
+		goto out;
+	}
+	dprintf(pidfd, "%d\n", getpid());
+	fchown(pidfd, PID_NOBODY, GID_NOGROUP);
+	close(pidfd);
+
+	/* no need for special permissions any more. Drop to nobody:nogroup */
+	setgid(GID_NOGROUP);
+	setuid(PID_NOBODY);
+
 	highest_fd++; /* select needs highest_fd + 1 */
 	for (;;) {
 		DPRINTF("Polling LEDs...\n");
@@ -477,5 +513,6 @@ out:
 	DPRINTF("Exiting... ret=%d\n", ret);
 
 	teardown();
+goodbye:
 	return ret ? EXIT_FAILURE : EXIT_SUCCESS;
 }
