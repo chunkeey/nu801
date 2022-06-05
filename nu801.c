@@ -111,6 +111,22 @@ static const struct hardware_definitions {
 		.functions = { "tricolor", "tricolor", "tricolor" },
 	},
 
+	{
+		.id = "meraki,mr26",
+		.gpio = {
+			.type = NUMBER,
+			.gpiochip = "gpiochip0",
+			.num = {
+				.cki = 0,
+				.sdi = 2,
+				.lei = 1,
+			},
+		},
+		.ndelay = 500,
+		.colors = { "blue", "green", "red" },
+		.functions = { "tricolor", "tricolor", "tricolor" },
+	},
+
 	{ 0, } /* Sentinel */
 };
 
