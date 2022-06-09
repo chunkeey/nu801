@@ -29,6 +29,10 @@
 #include <sys/select.h>
 #include <sys/ioctl.h>
 
+#ifndef __SANE_USERSPACE_TYPES__
+#define __SANE_USERSPACE_TYPES__	/* For PPC64, to get LL64 types */
+#endif
+
 #include <linux/gpio.h>
 #include <linux/uleds.h>
 
